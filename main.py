@@ -13,14 +13,6 @@ def col_import(col_file):
 
     with open(col_file) as sfaf1col:
         parse = False
-        # data_dict = {}
-        # exclude_n = 1
-        # station_class_n = 1
-        # transmitter_power_n = 1
-        # erp_n = 1
-        # emission_designator_n = 1
-        # user_net_code_n = 1
-        # operating_unit_n = 1
         for line in sfaf1col:
 
             if line.startswith('005'):
@@ -182,7 +174,7 @@ def convert_power(p):
         power += float(p[1:]) * 1000
     return power
 
-
+# Converts SXXI dates to YYYY MM DD
 def convert_date(d):
     year = d[0:4]
     month = d[4:6]
@@ -316,7 +308,7 @@ for n in range(0, len(data_dict)):
         processed_records.append(processed_dict)
 
 # print(data_dict)
-print(csv_records)
+# print(csv_records)
 
 json_file = json.dumps(processed_records, indent=4, )
 
