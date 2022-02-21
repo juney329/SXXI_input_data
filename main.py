@@ -3,7 +3,7 @@ import re
 import json
 import itertools
 import csv
-import tkinter
+
 
 
 # Used to return list of dictionaries from SXXI 1 column SFAF
