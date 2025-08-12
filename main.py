@@ -3,6 +3,8 @@ import re
 import json
 import itertools
 import csv
+import argparse
+import sys
 
 
 
@@ -192,137 +194,179 @@ def convert_date(d):
 
 
 # Reads Tab delimited fields from SXXI spreadsheet output
-data = pandas.read_csv('NEW MM TEST.txt', sep='\t')
+# data = pandas.read_csv('NEW MM TEST.txt', sep='\t')
 # Turns data into a LIST of dictionaries
 # data_dict = data.to_dict('records')
 
-data_dict = col_import('(u) ramstein 1 col 10 feb 21.txt')
+def main():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Process SFAF 1-column file and convert to CSV with lat, long, center freq, bandwidth, and serial number')
+    parser.add_argument('sfaf_file', help='Path to the SFAF 1-column file to process')
+    parser.add_argument('--output', '-o', default='recordsspreadsheet.csv', 
+                       help='Output CSV filename (default: recordsspreadsheet.csv)')
+    parser.add_argument('--json-output', '-j', default='records.json',
+                       help='Output JSON filename (default: records.json)')
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Check if input file exists
+    try:
+        with open(args.sfaf_file, 'r') as f:
+            pass
+    except FileNotFoundError:
+        print(f"Error: File '{args.sfaf_file}' not found.")
+        sys.exit(1)
+    
+    # Process the SFAF file
+    data_dict = col_import(args.sfaf_file)
+    
+    processed_records = []
+    csv_records = []
+    for n in range(0, len(data_dict)):
+        processed_dict = {}
+        csv_sfaf = []
+        current_dict = data_dict[n]
+        clean_current_dict = {k: v for k, v in current_dict.items() if str(v) != 'nan'}
 
-processed_records = []
-csv_records = []
-for n in range(0, len(data_dict)):
-    processed_dict = {}
-    csv_sfaf = []
-    current_dict = data_dict[n]
-    clean_current_dict = {k: v for k, v in current_dict.items() if str(v) != 'nan'}
-
-    if convert_frequency(clean_current_dict['FREQUENCY'])[0] != 0:
-        transmitter_power_list = [k for k, v in clean_current_dict.items() if "TRANSMITTER" in k]
-        emission_designator_list = [k for k, v in clean_current_dict.items() if "EMISSION" in k]
-        station_class_list = [k for k, v in clean_current_dict.items() if "STATION" in k]
-        erp_list = [k for k, v in clean_current_dict.items() if "EFFECTIVE" in k]
-        latlong = convert_dms_to_dd(clean_current_dict["TX ANTENNA COORDINATES"])
-        converted_frequencies = convert_frequency(clean_current_dict['FREQUENCY'])
-        emissions_list = []
-        for (sc, tp, ec) in itertools.zip_longest(station_class_list, transmitter_power_list, erp_list):
-            if sc in clean_current_dict.keys():
-                station_class = clean_current_dict[sc]
+        if convert_frequency(clean_current_dict['FREQUENCY'])[0] != 0:
+            # Get serial number for error reporting
+            serial_number = clean_current_dict.get('AGENCY SERIAL NUMBER', 'UNKNOWN')
+            
+            # Check if required fields exist
+            if "EMISSION DESIGNATOR[01]" not in clean_current_dict:
+                print(f"Warning: Skipping record {n+1} (Serial: {serial_number}) - missing EMISSION DESIGNATOR")
+                continue
+                
+            transmitter_power_list = [k for k, v in clean_current_dict.items() if "TRANSMITTER" in k]
+            emission_designator_list = [k for k, v in clean_current_dict.items() if "EMISSION" in k]
+            station_class_list = [k for k, v in clean_current_dict.items() if "STATION" in k]
+            erp_list = [k for k, v in clean_current_dict.items() if "EFFECTIVE" in k]
+            
+            # Handle missing coordinates by setting to 0 (won't show on map)
+            if "TX ANTENNA COORDINATES" not in clean_current_dict:
+                print(f"Warning: Record {n+1} (Serial: {serial_number}) - missing TX ANTENNA COORDINATES, setting lat/long to 0")
+                latlong = (0, 0)
             else:
-                station_class = "FX"
-            if tp in clean_current_dict.keys():
-                transmitter_power = convert_power(clean_current_dict[tp])
+                latlong = convert_dms_to_dd(clean_current_dict["TX ANTENNA COORDINATES"])
+            converted_frequencies = convert_frequency(clean_current_dict['FREQUENCY'])
+            emissions_list = []
+            for (sc, tp, ec) in itertools.zip_longest(station_class_list, transmitter_power_list, erp_list):
+                if sc in clean_current_dict.keys():
+                    station_class = clean_current_dict[sc]
+                else:
+                    station_class = "FX"
+                if tp in clean_current_dict.keys():
+                    transmitter_power = convert_power(clean_current_dict[tp])
+                else:
+                    transmitter_power = 1
+                if ec in clean_current_dict.keys():
+                    erp = clean_current_dict[ec]
+                else:
+                    erp = 0
+
+                emissions_group = {"station_class": station_class,
+                                   "transmitter_power": transmitter_power,
+                                   "effective_radiated_power": erp}
+                emissions_list.append(emissions_group)
+
+            if "LIST SERIAL NUMBER" in clean_current_dict.keys():
+                list_serial = clean_current_dict["LIST SERIAL NUMBER"]
             else:
-                transmitter_power = 1
-            if ec in clean_current_dict.keys():
-                erp = clean_current_dict[ec]
+                list_serial = ""
+            if "BUREAU" in clean_current_dict.keys():
+                bureau = clean_current_dict["BUREAU"]
             else:
-                erp = 0
+                bureau = ""
+            if "AGENCY" in clean_current_dict.keys():
+                agency = clean_current_dict["AGENCY"]
+            else:
+                agency = ""
+            if "COMMAND" in clean_current_dict.keys():
+                command = clean_current_dict["COMMAND"]
+            else:
+                command = ""
+            if "SUBCOMMAND" in clean_current_dict.keys():
+                subcommand = clean_current_dict["SUBCOMMAND"]
+            else:
+                subcommand = ""
 
-            emissions_group = {"station_class": station_class,
-                               "transmitter_power": transmitter_power,
-                               "effective_radiated_power": erp}
-            emissions_list.append(emissions_group)
+            if "INSTALLATION FREQUENCY MANAGER" in clean_current_dict.keys():
+                ism = clean_current_dict["INSTALLATION FREQUENCY MANAGER"]
+            else:
+                ism = ""
+            if "USER NET/CODE[01]" in clean_current_dict.keys():
+                user_net_code = clean_current_dict["USER NET/CODE[01]"]
+            else:
+                user_net_code = ""
 
-        if "LIST SERIAL NUMBER" in clean_current_dict.keys():
-            list_serial = clean_current_dict["LIST SERIAL NUMBER"]
-        else:
-            list_serial = ""
-        if "BUREAU" in clean_current_dict.keys():
-            bureau = clean_current_dict["BUREAU"]
-        else:
-            bureau = ""
-        if "AGENCY" in clean_current_dict.keys():
-            agency = clean_current_dict["AGENCY"]
-        else:
-            agency = ""
-        if "COMMAND" in clean_current_dict.keys():
-            command = clean_current_dict["COMMAND"]
-        else:
-            command = ""
-        if "SUBCOMMAND" in clean_current_dict.keys():
-            subcommand = clean_current_dict["SUBCOMMAND"]
-        else:
-            subcommand = ""
+            if "MAJOR FUNCTION IDENTIFIER" in clean_current_dict.keys():
+                major_function = clean_current_dict["MAJOR FUNCTION IDENTIFIER"]
+            else:
+                major_function = ""
 
-        if "INSTALLATION FREQUENCY MANAGER" in clean_current_dict.keys():
-            ism = clean_current_dict["INSTALLATION FREQUENCY MANAGER"]
-        else:
-            ism = ""
-        if "USER NET/CODE[01]" in clean_current_dict.keys():
-            user_net_code = clean_current_dict["USER NET/CODE[01]"]
-        else:
-            user_net_code = ""
+            if "INTERMEDIATE FUNCTION IDENTIFIER" in clean_current_dict.keys():
+                inter_function = clean_current_dict["INTERMEDIATE FUNCTION IDENTIFIER"]
+            else:
+                inter_function = ""
 
-        if "MAJOR FUNCTION IDENTIFIER" in clean_current_dict.keys():
-            major_function = clean_current_dict["MAJOR FUNCTION IDENTIFIER"]
-        else:
-            major_function = ""
+            # processed_dict["modulations"] = []
+            processed_dict["stations"] = emissions_list
+            processed_dict["name"] = clean_current_dict['AGENCY SERIAL NUMBER']
+            # processed_dict["start_timestamp"] = ""
+            # processed_dict["end_timestamp"] = None
+            # processed_dict["repeat_interval"] = None
+            # processed_dict["repeat_end_timestamp"] = None
+            processed_dict["center_frequency"] = converted_frequencies[0]
+            processed_dict["bandwidth"] = convert_emission_designator(clean_current_dict['EMISSION DESIGNATOR[01]'])
+            # processed_dict["filter_type"] = "WHITELIST"
+            processed_dict["agency_serial"] = clean_current_dict['AGENCY SERIAL NUMBER']
+            processed_dict["list_serial"] = list_serial
+            # processed_dict["authorization_date"] = None
+            processed_dict["reference_frequency"] = converted_frequencies[1]
+            # processed_dict["min_occupancy"] = 0.0
+            # processed_dict["max_occupancy"] = 100.0
+            processed_dict["agency"] = agency
+            processed_dict["bureau"] = bureau
+            processed_dict["command"] = command
+            processed_dict["subcommand"] = subcommand
+            processed_dict["installation_frequency_manager"] = ism
+            processed_dict["user_net"] = user_net_code
+            processed_dict["latitude"] = latlong[0]
+            processed_dict["longitude"] = latlong[1]
+            # processed_dict["altitude"] = None
+            processed_dict["major_function_identifier"] = major_function
+            processed_dict["intermediate_function_identifier"] = inter_function
+            # processed_dict["is_all_modulation"] = True
+            # processed_dict["icon"] = None
+            # processed_dict["groups"] = []
+            # processed_dict["operation_zones"] = []
+            # processed_dict["exclusion_zones"] = []
 
-        if "INTERMEDIATE FUNCTION IDENTIFIER" in clean_current_dict.keys():
-            inter_function = clean_current_dict["INTERMEDIATE FUNCTION IDENTIFIER"]
-        else:
-            inter_function = ""
+            csv_sfaf.append(latlong[0])
+            csv_sfaf.append(latlong[1])
+            csv_sfaf.append(converted_frequencies[0])
+            csv_sfaf.append(convert_emission_designator(clean_current_dict['EMISSION DESIGNATOR[01]']))
+            csv_sfaf.append(clean_current_dict['AGENCY SERIAL NUMBER'])
+            csv_records.append(csv_sfaf)
 
-        # processed_dict["modulations"] = []
-        processed_dict["stations"] = emissions_list
-        processed_dict["name"] = clean_current_dict['AGENCY SERIAL NUMBER']
-        # processed_dict["start_timestamp"] = ""
-        # processed_dict["end_timestamp"] = None
-        # processed_dict["repeat_interval"] = None
-        # processed_dict["repeat_end_timestamp"] = None
-        processed_dict["center_frequency"] = converted_frequencies[0]
-        processed_dict["bandwidth"] = convert_emission_designator(clean_current_dict['EMISSION DESIGNATOR[01]'])
-        # processed_dict["filter_type"] = "WHITELIST"
-        processed_dict["agency_serial"] = clean_current_dict['AGENCY SERIAL NUMBER']
-        processed_dict["list_serial"] = list_serial
-        # processed_dict["authorization_date"] = None
-        processed_dict["reference_frequency"] = converted_frequencies[1]
-        # processed_dict["min_occupancy"] = 0.0
-        # processed_dict["max_occupancy"] = 100.0
-        processed_dict["agency"] = agency
-        processed_dict["bureau"] = bureau
-        processed_dict["command"] = command
-        processed_dict["subcommand"] = subcommand
-        processed_dict["installation_frequency_manager"] = ism
-        processed_dict["user_net"] = user_net_code
-        processed_dict["latitude"] = latlong[0]
-        processed_dict["longitude"] = latlong[1]
-        # processed_dict["altitude"] = None
-        processed_dict["major_function_identifier"] = major_function
-        processed_dict["intermediate_function_identifier"] = inter_function
-        # processed_dict["is_all_modulation"] = True
-        # processed_dict["icon"] = None
-        # processed_dict["groups"] = []
-        # processed_dict["operation_zones"] = []
-        # processed_dict["exclusion_zones"] = []
+            processed_records.append(processed_dict)
 
-        csv_sfaf.append(latlong[0])
-        csv_sfaf.append(latlong[1])
-        csv_sfaf.append(converted_frequencies[0])
-        csv_sfaf.append(convert_emission_designator(clean_current_dict['EMISSION DESIGNATOR[01]']))
-        csv_sfaf.append(clean_current_dict['AGENCY SERIAL NUMBER'])
-        csv_records.append(csv_sfaf)
+    # print(data_dict)
+    print(f"Processed {len(csv_records)} records from {args.sfaf_file}")
+    print(csv_records)
 
-        processed_records.append(processed_dict)
+    json_file = json.dumps(processed_records, indent=4, )
 
-# print(data_dict)
-print(csv_records)
+    with open(args.output, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(csv_records)
 
-json_file = json.dumps(processed_records, indent=4, )
+    with open(args.json_output, mode="w") as file:
+        file.write(json_file)
+    
+    print(f"CSV output saved to: {args.output}")
+    print(f"JSON output saved to: {args.json_output}")
 
-with open('recordsspreadsheet.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerows(csv_records)
-
-with open("records.json", mode="w") as file:
-    file.write(json_file)
+if __name__ == "__main__":
+    main()
